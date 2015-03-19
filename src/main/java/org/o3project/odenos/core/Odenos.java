@@ -35,16 +35,15 @@ import org.o3project.odenos.remoteobject.ObjectProperty;
 import org.o3project.odenos.remoteobject.RemoteObject;
 import org.o3project.odenos.remoteobject.manager.EventManager;
 import org.o3project.odenos.remoteobject.messagingclient.Config;
+import org.o3project.odenos.remoteobject.messagingclient.Config.MODE;
 import org.o3project.odenos.remoteobject.messagingclient.ConfigBuilder;
 import org.o3project.odenos.remoteobject.messagingclient.MessageDispatcher;
 import org.o3project.odenos.remoteobject.rest.RESTTranslator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.FileReader;
-import java.io.Reader;
+import java.util.EnumSet;
 import java.util.HashSet;
-import java.util.Properties;
 import java.util.Set;
 
 public final class Odenos {
@@ -53,19 +52,26 @@ public final class Odenos {
 
   public static final String MSGSV_IP = "127.0.0.1";
   public static final int MSGSV_PORT = 6379;
+  public static final int REST_PORT = 10080;
   public static final String SYSTEM_MGR_ID = "systemmanager";
   public static final String EVENT_MGR_ID = "eventmanager";
   public static final String REST_TRANSLATOR_ID = "resttranslator";
   public static final String DEFAULT_REST_CONF = "etc/odenos_rest.conf";
+  
 
-  private Properties properties;
   private MessageDispatcher disp;
+  private String systemMgrId;
   private String msgsvIp;
   private int msgsvPort;
   private boolean systemIsEnabled;
+  private String msgsvIpBackup;
+  private int msgsvPortBackup;
   private String romgrId;
   private String directory;
   private CommandParser parser = new CommandParser();
+  private int restport;
+  private String restroot;
+  private boolean monitorEnabled;
 
   private final class CommandParser {
     CommandLine line;
@@ -74,10 +80,16 @@ public final class Odenos {
     public CommandParser() {
       options = new Options();
       options.addOption("d", "directory", true, "directory including Components to be loaded");
-      options.addOption("i", "ip", true, "ip address of MessagingServer");
+      options.addOption("i", "ip", true, "ip address or host name of MessagingServer");
       options.addOption("p", "port", true, "port number of MessagingServer");
+      options.addOption("I", "ip_backup", true, "ip address or host name of backup MessagingServer");
+      options.addOption("P", "port_backup", true, "port number of backup MessagingServer");
       options.addOption("r", "romgr", true, "start ComponentManager with specified id");
       options.addOption("s", "system", false, "start core system");
+      options.addOption("S", "system_with_name", true, "start core system with specified id");
+      options.addOption("o", "restport", true, "port number of RestPort");
+      options.addOption("h", "restroot", true, "Directory of Rest root");
+      options.addOption("m", "monitor", true, "Directory of Rest root");
     }
 
     public final void parse(String[] args) throws ParseException {
@@ -85,15 +97,43 @@ public final class Odenos {
     }
 
     public final String getIp() {
-      return line.hasOption("ip") ? line.getOptionValue("ip") : MSGSV_IP;
+      if (line.hasOption("ip")) {
+        String ip = line.getOptionValue("ip");
+        return (ip.equals("null")) ?  null: ip;
+      } else {
+        return null;
+      }
     }
 
     public final int getPort() {
-      return line.hasOption("port") ? Integer.parseInt(line.getOptionValue("port")) : MSGSV_PORT;
+      return line.hasOption("port")
+          ? Integer.parseInt(line.getOptionValue("port")) : 0;
+    }
+
+    public final String getIpBackup() {
+      if (line.hasOption("ip_backup")) {
+        String ip = line.getOptionValue("ip_backup");
+        return (ip.equals("null")) ?  null: ip;
+      } else {
+        return null;
+      }
+    }
+
+    public final int getPortBackup() {
+      return line.hasOption("port_backup") 
+          ? Integer.parseInt(line.getOptionValue("port_backup")) : 0;
     }
 
     public final boolean getSystem() {
       return line.hasOption("system") ? true : false;
+    }
+
+    public final String getSystemWithName() {
+      if (line.hasOption("system_with_name")) {
+        return line.getOptionValue("system_with_name");
+      } else {
+        return SYSTEM_MGR_ID;
+      }
     }
 
     public final String getRoMgr() {
@@ -102,6 +142,26 @@ public final class Odenos {
 
     public final String getDirectory() {
       return line.hasOption("directory") ? line.getOptionValue("directory") : null;
+    }
+
+    public final int getRestPort() {
+      return line.hasOption("restport") ? Integer.parseInt(line.getOptionValue("restport")) : REST_PORT;
+    }
+
+    public final String getRestRoot() {
+      return line.hasOption("restroot") ? line.getOptionValue("restroot") : null;
+    }
+    
+    public final boolean getMonitor() {
+      if (line.hasOption("monitor")) {
+        if (line.getOptionValue("monitor").equals("true")) {
+          return true;
+        } else {
+          return false;
+        }
+      } else {
+        return false;
+      }
     }
   }
 
@@ -115,7 +175,10 @@ public final class Odenos {
 
     msgsvIp = parser.getIp();
     msgsvPort = parser.getPort();
+    msgsvIpBackup = parser.getIpBackup();
+    msgsvPortBackup = parser.getPortBackup();
     systemIsEnabled = parser.getSystem();
+    systemMgrId = parser.getSystemWithName();
     romgrId = parser.getRoMgr();
     if (romgrId != null) {
       directory = parser.getDirectory();
@@ -123,28 +186,9 @@ public final class Odenos {
         throw new ParseException("please specify '-d' when you want to specify '-r'");
       }
     }
-  }
-
-  /**
-   * Setup properties.
-   * @param pathOfConf path of configure file.
-   * @throws Exception if failed to load file.
-   */
-  public void setupProperties(String pathOfConf) throws Exception {
-    this.properties = new Properties();
-    Reader reader = null;
-    try {
-      reader = new FileReader(pathOfConf);
-      properties.load(reader);
-    } finally {
-      if (reader != null) {
-        try {
-          reader.close();
-        } catch (Exception e) {
-          e.printStackTrace();
-        }
-      }
-    }
+    restport = parser.getRestPort();
+    restroot = parser.getRestRoot();
+    monitorEnabled = parser.getMonitor();
   }
 
   /**
@@ -152,13 +196,23 @@ public final class Odenos {
    */
   public final void run() {
     try {
+      EnumSet<MODE> mode;
+      if (monitorEnabled) {
+        mode = EnumSet.of(MODE.RESEND_SUBSCRIBE_ON_RECONNECTED,
+                          MODE.INCLUDE_SOURCE_OBJECT_ID,
+                          MODE.REFLECT_MESSAGE_TO_MONITOR);
+      } else {
+        mode = EnumSet.of(MODE.RESEND_SUBSCRIBE_ON_RECONNECTED);
+      }
       Config config = new ConfigBuilder()
-          .setSystemManagerId(SYSTEM_MGR_ID)
+          .setSystemManagerId(systemMgrId)
           .setEventManagerId(EVENT_MGR_ID)
           //.setSourceDispatcherId("disp-"+ ManagementFactory.getRuntimeMXBean().getName())
           .setHost(msgsvIp)
           .setPort(msgsvPort)
-          //.setMode(EnumSet.of(MODE.RESEND_SUBSCRIBE_ON_RECONNECTED))
+          .setHostB(msgsvIpBackup)
+          .setPortB(msgsvPortBackup)
+          .setMode(mode)
           //.setRemoteTransactionsMax(20)
           //.setRemoteTransactionsInitialTimeout(3)
           //.setRemoteTransactionsFinalTimeout(30)
@@ -167,7 +221,7 @@ public final class Odenos {
       disp.start();
 
       if (systemIsEnabled) {
-        this.runCoreSystem();
+        this.runCoreSystem(systemMgrId);
       }
 
       if (romgrId != null) {
@@ -182,17 +236,16 @@ public final class Odenos {
     }
   }
 
-  private final void runCoreSystem() {
+  private final void runCoreSystem(String systemMgrId) {
     EventManager evtmgr = new EventManager(EVENT_MGR_ID, disp);
-    SystemManager sysmgr = new SystemManager(SYSTEM_MGR_ID, disp, evtmgr.getProperty());
-    RESTTranslator restTranslator = new RESTTranslator(
-        REST_TRANSLATOR_ID, disp, properties.getProperty("rest.root"),
-        Integer.parseInt(properties.getProperty("rest.port")));
+    SystemManager sysmgr = new SystemManager(systemMgrId, disp, evtmgr.getProperty());
+    RESTTranslator restTranslator
+      = new RESTTranslator(REST_TRANSLATOR_ID, disp, restroot, restport);
   }
 
-  private final void runComponentManager(final String id, final String dir) throws Exception {
-    SystemManagerIF sysmgr = new SystemManagerIF(disp);
-    ComponentManager2 romgr = new ComponentManager2(id, disp);
+  private final void runComponentManager(final String romgrId, final String dir) throws Exception {
+    SystemManagerIF sysmgr = new SystemManagerIF(romgrId, disp);
+    ComponentManager2 romgr = new ComponentManager2(romgrId, disp);
     romgr.registerComponents(this.findComponents(dir));
     sysmgr.addComponentManager(romgr.getProperty());
     romgr.setState(ObjectProperty.State.RUNNING);
@@ -229,12 +282,12 @@ public final class Odenos {
 
     try {
       odenos.parseParameters(args);
-      odenos.setupProperties(DEFAULT_REST_CONF);
       odenos.run();
     } catch (ParseException e) {
       System.err.println("Invalid command line parameters: " + e.getMessage());
     } catch (Exception e) {
       System.err.println("invalid configuration file: " + e.getMessage());
+      log.error("invalid", e);
     }
   }
 }

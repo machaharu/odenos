@@ -252,6 +252,9 @@ public class Aggregator extends Logic {
       }
       orgNwIf = networkInterfaces().get(orgNetworkId.get(0));
       aggNwIf = networkInterfaces().get(networkId);
+    } else {
+      log.error("Unexpected network type: {}", type);
+      throw new IllegalArgumentException("Unexpected network type: " + type);
     }
     // Update conversionTable.
     conversionTable().addEntryNetwork(
@@ -595,8 +598,7 @@ public class Aggregator extends Logic {
     }
     NetworkInterface aggNetworkIf = networkInterfaces().get(aggNetworkId);
 
-    String aggNodeId = getConvNodeId(networkId, node.getId());
-    if (aggNodeId == null) {
+    if (getConvNodeId(aggNetworkId, this.getObjectId()) == null) {
       node.putAttribute(AttrElements.PHYSICAL_ID, this.getObjectId());
       Node aggNodeMsg = new Node(
           node.getVersion(), this.getObjectId(),
@@ -605,7 +607,7 @@ public class Aggregator extends Logic {
       aggNetworkIf.putNode(aggNodeMsg);
     }
 
-    // changed node's oper_status. ("UP" -> "DOWN")  
+    // changed node's oper_status. ("UP" -> "DOWN")
     Map<String, String> updateAttr = new HashMap<>();
     updateAttr.put(Logic.AttrElements.OPER_STATUS, STATUS_DOWN);
     aggNetworkIf.putAttributeOfNode(updateAttr);
@@ -988,7 +990,6 @@ public class Aggregator extends Logic {
     }
     // Aggregated Network ==> Aggregator
     dstFlow.setEnabled(srcFlow.getEnabled());
-    dstFlow.setStatus(srcFlow.getStatus());
     dstFlow.setPriority(srcFlow.getPriority());
     updateFlow(dstNetworkIf, srcNetworkIf, dstFlow, srcFlow);
 
