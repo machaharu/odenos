@@ -37,3 +37,7 @@ Your contribution are very welcome, please submit your patch code using
 github "Pull Requests".
 If you find any bug, let us know by github's Issues page.
 
+
+
+[![Bitdeli Badge](https://d2weczhvl823v0.cloudfront.net/machaharu/odenos/trend.png)](https://bitdeli.com/free "Bitdeli Badge")
+
